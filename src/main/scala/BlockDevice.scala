@@ -68,6 +68,11 @@ class BlockDeviceIO(implicit p: Parameters) extends BlockDeviceBundle {
   val info = Input(new BlockDeviceInfo)
 }
 
+class BlockDevicePerfIO(implicit p: Parameters) extends BlockDeviceBundle {
+  val tl_get = Output(Bool())
+  val tl_put = Output(Bool())
+}
+
 class BlockDeviceArbiter(implicit p: Parameters) extends BlockDeviceModule {
   val io = IO(new Bundle {
     val in = Flipped(Vec(nTrackers, new BlockDeviceIO))
@@ -113,6 +118,7 @@ class BlockDeviceTrackerModule(outer: BlockDeviceTracker)
   val io = IO(new Bundle {
     val front = Flipped(new BlockDeviceTrackerIO)
     val bdev = new BlockDeviceIO
+    val perf = new BlockDevicePerfIO
   })
 
   val (tl, edge) = outer.node.out(0)
@@ -213,6 +219,9 @@ class BlockDeviceTrackerModule(outer: BlockDeviceTracker)
   }
 
   when (io.front.complete.fire()) { state := s_idle }
+
+  io.perf.tl_get := edge.done(tl.a) && tl.a.bits.opcode === TLMessages.Get
+  io.perf.tl_put := edge.done(tl.a) && tl.a.bits.opcode === TLMessages.PutFullData
 }
 
 class BlockDeviceBackendIO(implicit p: Parameters) extends BlockDeviceBundle {
@@ -341,6 +350,7 @@ class BlockDeviceControllerModule(outer: BlockDeviceController)
     extends LazyModuleImp(outer) {
   val io = IO(new Bundle {
     val bdev = new BlockDeviceIO
+    val perf = new BlockDevicePerfIO
   })
 
   val frontend = outer.frontend.module
@@ -355,6 +365,8 @@ class BlockDeviceControllerModule(outer: BlockDeviceController)
   }
   arbiter.io.in <> trackers.map(_.io.bdev)
   io.bdev <> arbiter.io.out
+
+  io.perf := trackers(0).io.perf
 }
 
 class BlockDeviceModel(nSectors: Int)(implicit p: Parameters) extends BlockDeviceModule {
